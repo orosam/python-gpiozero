@@ -263,13 +263,13 @@ def test_pprint_missing_pin():
     with patch('sys.stdout') as stdout:
         stdout.output = []
         stdout.write = lambda buf: stdout.output.append(buf)
-        s = ''.join(stdout.output)
         header.pprint()
+        s = ''.join(stdout.output)
         for i in range(1, 9):
             if i == 3:
                 assert '(3)' not in s
             else:
-                assert ('(%d)' % i)
+                assert ('(%d)' % i) in s
 
 def test_pprint_rows_cols():
     assert '{0:row1}'.format(pi_info('900092').headers['J8']) == '1o'
