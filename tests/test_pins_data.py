@@ -271,6 +271,26 @@ def test_pprint_missing_pin():
             else:
                 assert ('(%d)' % i) in s
 
+def test_pprint_full_output():
+    header = HeaderInfo('FOO', 3, 2, {
+        1: PinInfo(1, '5V',    False, 1, 1),
+        2: PinInfo(2, 'GND',   False, 1, 2),
+        3: PinInfo(3, '5V',    False, 2, 1),
+        4: PinInfo(4, 'GPIO1', False, 2, 2),
+        5: PinInfo(5, 'GPIO2', False, 3, 1),
+        6: PinInfo(6, 'GPIO3', False, 3, 2),
+        })
+    with patch('sys.stdout') as stdout:
+        stdout.output = []
+        stdout.write = lambda buf: stdout.output.append(buf)
+        header.pprint()
+        pin_lines = ''.join(stdout.output).split('\n')
+
+        assert '(1)' in pin_lines[0]
+        assert '(2)' in pin_lines[0]
+        assert '(6)' in pin_lines[2]
+        assert 'GPIO3' in pin_lines[2]
+
 def test_pprint_rows_cols():
     assert '{0:row1}'.format(pi_info('900092').headers['J8']) == '1o'
     assert '{0:row2}'.format(pi_info('900092').headers['J8']) == 'oo'
