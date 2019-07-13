@@ -60,6 +60,12 @@ def test_args_revision():
     args = main.parser.parse_args(['--revision', '000d'])
     assert args.revision == '000d'
 
+def test_args_rotate():
+    args = main.parser.parse_args([])
+    assert args.rotation == 0
+    args = main.parser.parse_args(['--rotate'])
+    assert args.rotation == 180
+
 def test_help(capsys):
     with pytest.raises(SystemExit) as ex:
         main(['pinout', '--help'])

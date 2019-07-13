@@ -73,6 +73,14 @@ class PinoutTool(object):
             help='Force monochrome output. See also --color'
         )
         self.parser.add_argument(
+            '--rotate',
+            action='store_const',
+            dest='rotation',
+            const=180,
+            default=0,
+            help='Rotate the pin header description 180 degrees'
+        )
+        self.parser.add_argument(
             '-x', '--xyz',
             dest='xyz',
             action='store_true',
@@ -101,7 +109,7 @@ class PinoutTool(object):
         else:
             if args.revision == '':
                 try:
-                    pi_info().pprint(color=args.color)
+                    pi_info().pprint(color=args.color, rotation=args.rotation)
                 except ImportError:
                     formatter = self.parser._get_formatter()
                     formatter.add_text(
@@ -121,7 +129,7 @@ class PinoutTool(object):
                 except IOError:
                     raise IOError('This device is not a Raspberry Pi')
             else:
-                pi_info(args.revision).pprint(color=args.color)
+                pi_info(args.revision).pprint(color=args.color, rotation=args.rotation)
             formatter = self.parser._get_formatter()
             formatter.add_text(
                 "For further information, please refer to "

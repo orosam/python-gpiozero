@@ -504,21 +504,25 @@ class Style(object):
     @classmethod
     def from_style_content(cls, format_spec):
         specs = set(format_spec.split())
+        orientation, specs = Orientation.from_format_specifier_set(specs)
         style = specs & {'mono', 'color'}
         content = specs - style
+
         if len(style) > 1:
             raise ValueError('cannot specify both mono and color styles')
         try:
             style = style.pop()
         except KeyError:
             style = 'color' if cls._term_supports_color() else 'mono'
+
         if len(content) > 1:
             raise ValueError('cannot specify more than one content element')
         try:
             content = content.pop()
         except KeyError:
             content = 'full'
-        return cls(style == 'color'), content
+
+        return cls(style == 'color'), content, orientation
 
     def __call__(self, format_spec):
         specs = format_spec.split()
@@ -549,6 +553,51 @@ class Style(object):
             return 'color' if self.color else 'mono'
         else:
             return self(format_spec)
+
+
+class Orientation(object):
+    valid_rotations = (0, 180)
+
+    def __init__(self, rotation=0):
+        if rotation not in self.valid_rotations:
+            raise ValueError("invalid orientation %d" % rotation)
+
+        self._rotation = rotation
+
+    def __str__(self):
+        return self._as_string(self._rotation)
+
+    @staticmethod
+    def _as_string(degree):
+        return 'rotate_%d' % degree
+
+    @property
+    def rotation(self):
+        return self._rotation
+
+    @classmethod
+    def from_format_specifier_set(cls, format_specifiers):
+        """
+        Create a new Orientation object from a set of format specifiers.
+
+        :param set format_specifiers:
+            A set with format specifiers.
+        :return
+            The new Orientation object and the remaining format specifiers, with the orientation specifier removed
+        """
+        valid_specifiers = {cls._as_string(i) for i in cls.valid_rotations}
+        orientations = format_specifiers & valid_specifiers
+        format_specifiers = format_specifiers - valid_specifiers
+
+        if len(orientations) > 1:
+            raise ValueError('cannot specify more than one orientation')
+        try:
+            orientation = orientations.pop()
+        except KeyError:
+            orientation = cls._as_string(0)
+
+        degree = int(orientation.split('_')[1])
+        return cls(degree), format_specifiers
 
 
 class PinInfo(namedtuple('PinInfo', (
@@ -646,7 +695,8 @@ class HeaderInfo(namedtuple('HeaderInfo', (
     """
     __slots__ = () # workaround python issue #24931
 
-    def _func_style(self, function, style):
+    @staticmethod
+    def _func_style(function, style):
         if function == V5:
             return style('bold red')
         elif function in (V3_3, V1_8):
@@ -658,37 +708,15 @@ class HeaderInfo(namedtuple('HeaderInfo', (
         else:
             return style('yellow')
 
-    def _format_full(self, style):
-        Cell = namedtuple('Cell', ('content', 'align', 'style'))
-
-        lines = []
-        for row in range(self.rows):
-            line = []
-            for col in range(self.columns):
-                pin = (row * self.columns) + col + 1
-                try:
-                    pin = self.pins[pin]
-                    cells = [
-                        Cell(pin.function, '><'[col % 2], self._func_style(pin.function, style)),
-                        Cell('(%d)' % pin.number, '><'[col % 2], ''),
-                        ]
-                    if col % 2:
-                        cells = reversed(cells)
-                    line.extend(cells)
-                except KeyError:
-                    line.append(Cell('', '><'[col % 2], ''))
-                    line.append(Cell('', '><'[col % 2], ''))
-            lines.append(line)
-        cols = list(zip(*lines))
-        col_lens = [max(len(cell.content) for cell in col) for col in cols]
-        lines = [
-            ' '.join(
-                '{cell.style}{cell.content:{cell.align}{width}s}{style:reset}'.format(
-                    cell=cell, width=width, style=style)
-                for cell, width, align in zip(line, col_lens, cycle('><')))
-            for line in lines
-            ]
-        return '\n'.join(lines)
+    def _format_full(self, style, rotation):
+        if rotation == 0:
+            return _PinDescriptionFormatter.format(
+                style=style, pin_style_func=self._func_style, rows=self.rows, columns=self.columns, pins=self.pins
+            )
+        else:
+            return _RotatedPinDescriptionFormatter.format(
+                style=style, pin_style_func=self._func_style, rows=self.rows, columns=self.columns, pins=self.pins
+            )
 
     def _format_pin(self, pin, style):
         return ''.join((
@@ -721,15 +749,15 @@ class HeaderInfo(namedtuple('HeaderInfo', (
             )
 
     def __format__(self, format_spec):
-        style, content = Style.from_style_content(format_spec)
+        style, content, orientation = Style.from_style_content(format_spec)
         if content == 'full':
-            return self._format_full(style)
+            return self._format_full(style, orientation.rotation)
         elif content.startswith('row') and content[3:].isdigit():
             return self._format_row(int(content[3:]), style)
         elif content.startswith('col') and content[3:].isdigit():
             return self._format_col(int(content[3:]), style)
 
-    def pprint(self, color=None):
+    def pprint(self, color=None, rotation=0):
         """
         Pretty-print a diagram of the header pins.
 
@@ -738,7 +766,75 @@ class HeaderInfo(namedtuple('HeaderInfo', (
         can be set to :data:`True` or :data:`False` to force color or
         monochrome output.
         """
-        print('{0:{style} full}'.format(self, style=Style(color)))
+        orientation = Orientation(rotation)
+        print('{0:{style} full}'.format(self, style=Style(color), orientation=orientation))
+
+
+class _PinDescriptionFormatter(object):
+    @classmethod
+    def format(cls, style, pin_style_func, rows, columns, pins):
+        Cell = namedtuple('Cell', ('content', 'align', 'style'))
+
+        lines = []
+        for row in range(rows):
+            line = []
+            for col in range(columns):
+                pin = (row * columns) + col + 1
+                try:
+                    pin = pins[pin]
+                    cells = [
+                        Cell(pin.function, '><'[col % 2], pin_style_func(pin.function, style)),
+                        Cell('(%d)' % pin.number, '><'[col % 2], ''),
+                        ]
+                    if col % 2:
+                        cells = reversed(cells)
+                    line.extend(cells)
+                except KeyError:
+                    line.append(Cell('', '><'[col % 2], ''))
+                    line.append(Cell('', '><'[col % 2], ''))
+            lines.append(line)
+
+        return cls._collect_lines(lines, style)
+
+    @classmethod
+    def _collect_lines(self, lines, style):
+        cols = list(zip(*lines))
+        col_lens = [max(len(cell.content) for cell in col) for col in cols]
+        lines = [
+            ' '.join(
+                '{cell.style}{cell.content:{cell.align}{width}s}{style:reset}'.format(
+                    cell=cell, width=width, style=style)
+                for cell, width, align in zip(line, col_lens, cycle('><')))
+            for line in lines
+            ]
+        return '\n'.join(lines)
+
+
+class _RotatedPinDescriptionFormatter(_PinDescriptionFormatter):
+    @classmethod
+    def format(cls, style, pin_style_func, rows, columns, pins):
+        Cell = namedtuple('Cell', ('content', 'align', 'style'))
+
+        lines = []
+        for row in reversed(range(rows)):
+            line = []
+            for col in reversed(range(columns)):
+                pin = (row * columns) + col + 1
+                try:
+                    pin = pins[pin]
+                    cells = [
+                        Cell('(%d)' % pin.number, '><'[col % 2], ''),
+                        Cell(pin.function, '><'[col % 2], pin_style_func(pin.function, style)),
+                        ]
+                    if col % 2:
+                        cells = reversed(cells)
+                    line.extend(cells)
+                except KeyError:
+                    line.append(Cell('', '><'[col % 2], ''))
+                    line.append(Cell('', '><'[col % 2], ''))
+            lines.append(line)
+
+        return cls._collect_lines(lines, style)
 
 
 class PiBoardInfo(namedtuple('PiBoardInfo', (
@@ -1287,15 +1383,15 @@ class PiBoardInfo(namedtuple('PiBoardInfo', (
             )
 
     def __format__(self, format_spec):
-        style, content = Style.from_style_content(format_spec)
+        style, content, orientation = Style.from_style_content(format_spec)
         if content == 'full':
             return dedent("""\
                 {self:{style} board}
 
                 {self:{style} specs}
 
-                {self:{style} headers}"""
-                ).format(self=self, style=style)
+                {self:{style} headers {orientation}}"""
+                ).format(self=self, style=style, orientation=orientation)
         elif content == 'board':
             kw = self._asdict()
             kw.update({
@@ -1320,12 +1416,12 @@ class PiBoardInfo(namedtuple('PiBoardInfo', (
             return '\n\n'.join(
                 dedent("""\
                 {style:bold}{header.name}{style:reset}:
-                {header:{style} full}"""
-                ).format(header=header, style=style)
+                {header:{style} full {orientation}}"""
+                ).format(header=header, style=style, orientation=orientation)
                 for header in sorted(self.headers.values(), key=attrgetter('name'))
                 )
 
-    def pprint(self, color=None):
+    def pprint(self, color=None, rotation=0):
         """
         Pretty-print a representation of the board along with header diagrams.
 
@@ -1334,7 +1430,7 @@ class PiBoardInfo(namedtuple('PiBoardInfo', (
         can be set to :data:`True` or :data:`False` to force color or monochrome
         output.
         """
-        print('{0:{style} full}'.format(self, style=Style(color)))
+        print('{0:{style} full {orientation}}'.format(self, style=Style(color), orientation=Orientation(rotation)))
 
 
 def pi_info(revision=None):
