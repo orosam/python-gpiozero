@@ -250,7 +250,7 @@ def test_pprint_styles():
         '{0:foo on bar}'.format(Style())
 
 def test_pprint_missing_pin():
-    header = HeaderInfo('FOO', 4, 2, {
+    pins = {
         1: PinInfo(1, '5V',    False, 1, 1),
         2: PinInfo(2, 'GND',   False, 1, 2),
         # Pin 3 is deliberately missing
@@ -259,7 +259,8 @@ def test_pprint_missing_pin():
         6: PinInfo(6, 'GPIO3', False, 3, 2),
         7: PinInfo(7, '3V3',   False, 4, 1),
         8: PinInfo(8, 'GND',   False, 4, 2),
-        })
+        }
+    header = HeaderInfo('FOO', 4, 2, pins)
     with patch('sys.stdout') as stdout:
         stdout.output = []
         stdout.write = lambda buf: stdout.output.append(buf)
@@ -270,6 +271,7 @@ def test_pprint_missing_pin():
                 assert '(3)' not in s
             else:
                 assert ('(%d)' % i) in s
+                assert pins[i].function in s
 
 def test_pprint_full_output():
     header = HeaderInfo('FOO', 3, 2, {

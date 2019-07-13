@@ -676,7 +676,8 @@ class HeaderInfo(namedtuple('HeaderInfo', (
                         cells = reversed(cells)
                     line.extend(cells)
                 except KeyError:
-                    line.append(Cell('', '<', ''))
+                    line.append(Cell('', '><'[col % 2], ''))
+                    line.append(Cell('', '><'[col % 2], ''))
             lines.append(line)
         cols = list(zip(*lines))
         col_lens = [max(len(cell.content) for cell in col) for col in cols]
